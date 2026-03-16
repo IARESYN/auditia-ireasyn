@@ -1,0 +1,88 @@
+{
+    "legal_documents": [
+        {
+            "id": "ET_2015",
+            "type": "ley",
+            "title": "Estatuto de los Trabajadores",
+            "code": "RDL 2/2015",
+            "summary": "Norma básica que regula las relaciones laborales en España.",
+            "lastUpdate": "2026-01-15",
+            "articles": [
+                {
+                    "number": "34.9",
+                    "title": "Registro de jornada",
+                    "content": "La empresa garantizará el registro diario de jornada, que deberá incluir el horario concreto de inicio y finalización de la jornada de trabajo de cada persona trabajadora...",
+                    "tags": [
+                        "jornada",
+                        "obligatorio",
+                        "registro"
+                    ],
+                    "lastUpdate": "2023-05-12"
+                },
+                {
+                    "number": "27",
+                    "title": "Salario Mínimo Interprofesional",
+                    "content": "El Gobierno fijará, previa consulta con las organizaciones sindicales y asociaciones empresariales más representativas, anualmente, el salario mínimo interprofesional...",
+                    "tags": [
+                        "salario",
+                        "SMI",
+                        "remuneración"
+                    ],
+                    "lastUpdate": "2024-02-01"
+                }
+            ]
+        },
+        {
+            "id": "LPRL_1995",
+            "type": "ley",
+            "title": "Ley de Prevención de Riesgos Laborales",
+            "code": "Ley 31/1995",
+            "summary": "Marco legal para la seguridad y salud de los trabajadores.",
+            "lastUpdate": "2025-12-01",
+            "articles": [
+                {
+                    "number": "14",
+                    "title": "Derecho a la protección frente a los riesgos laborales",
+                    "content": "Los trabajadores tienen derecho a una protección eficaz en materia de seguridad y salud en el trabajo.",
+                    "tags": [
+                        "PRL",
+                        "salud",
+                        "seguridad"
+                    ],
+                    "lastUpdate": "2025-12-01"
+                }
+            ]
+        }
+    ],
+    "convenios": [
+        {
+            "id": "CONV_CONS_2024",
+            "title": "Convenio Estatal de Consultoría y TIC",
+            "code": "99012025012204",
+            "scope": "Nacional",
+            "vigencia": "2024-2027",
+            "status": "Vigente",
+            "tags": [
+                "TIC",
+                "Consultoría",
+                "Oficinas"
+            ]
+        }
+    ],
+    "jurisprudencia": [
+        {
+            "id": "STS_234_2025",
+            "tribunal": "Tribunal Supremo",
+            "sentencia": "STS 234/2025",
+            "tema": "Horas extras no registradas - presunción de fraude",
+            "date": "2026-01-15",
+            "relevancia": "Alta",
+            "summary": "El TS dictamina que la ausencia de registro horario genera una presunción de realización de horas extras si hay indicios razonables.",
+            "tags": [
+                "horas extras",
+                "registro",
+                "fraude"
+            ]
+        }
+    ]
+}

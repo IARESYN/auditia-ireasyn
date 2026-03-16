@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  cif       String?
+  settings  Json?    @default("{}")
+  users     User[]
+  empresas  Empresa[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id          String    @id @default(uuid())
+  email       String    @unique
+  password    String
+  firstName   String?
+  lastName    String?
+  role        String    @default("ADMIN") // ADMIN, USER
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Empresa {
+  id            String      @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace   @relation(fields: [workspaceId], references: [id])
+  nombre        String
+  cif           String
+  sector        String?
+  numEmpleados  Int?        @default(0)
+  auditorias    Auditoria[]
+  empleados     Empleado[]
+  documentos    Documento[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model Auditoria {
+  id          String    @id @default(uuid())
+  empresaId   String
+  empresa     Empresa   @relation(fields: [empresaId], references: [id])
+  estado      String    @default("Borrador") // Borrador, En curso, Completada, Archivada
+  tipo        String    @default("FULL")
+  progreso    Int       @default(0)
+  currentStep Int       @default(1)
+  wizardData  Json?     @default("{}")
+  hallazgos   Hallazgo[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Empleado {
+  id            String   @id @default(uuid())
+  empresaId     String
+  empresa       Empresa  @relation(fields: [empresaId], references: [id])
+  firstName     String
+  lastName      String
+  contractType  String?
+  jobTitle      String?
+  hireDate      DateTime?
+  estado        String   @default("Activo")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Hallazgo {
+  id                String    @id @default(uuid())
+  auditoriaId       String
+  auditoria         Auditoria @relation(fields: [auditoriaId], references: [id])
+  controlId         String?
+  resultado         String    @default("NO CUMPLE")
+  remediacion       String    @default("Abierto")
+  severidad         String?   @default("Media")
+  descripcion       String?   @db.Text
+  recomendacion     String?   @db.Text
+  exposicionMin     Float?    @default(0)
+  exposicionMax     Float?    @default(0)
+  documentos        Documento[]
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model Documento {
+  id              String    @id @default(uuid())
+  empresaId       String
+  empresa         Empresa   @relation(fields: [empresaId], references: [id])
+  hallazgoId      String?
+  hallazgo        Hallazgo? @relation(fields: [hallazgoId], references: [id])
+  nombre          String
+  tipo            String?
+  url             String
+  relacionadoTipo String?   @default("Ninguno")
+  relacionadoId   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}

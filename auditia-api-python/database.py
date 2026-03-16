@@ -4,12 +4,24 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/auditia")
+# Supabase (PostgreSQL) connection string handling
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Fallback to local SQLite for development if no URL is provided
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///./auditia.db"
+    print("⚠️ Using local SQLite database.")
+else:
+    # Ensure the URL is compatible with SQLAlchemy (PostgreSQL)
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    print("✅ Using Cloud Database (Supabase/PostgreSQL).")
 
 engine = create_engine(
     DATABASE_URL, 
+    # check_same_thread is only for SQLite
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
-    echo=True
+    pool_pre_ping=True # Robustness for cloud connections
 )
 
 def init_db():

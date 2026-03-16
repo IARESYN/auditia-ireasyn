@@ -1,4 +1,4 @@
--- IARESYN Core Audit Schema
+-- IARESYN Core Audit Schema (Updated for Production)
 -- Target: Supabase (PostgreSQL)
 
 -- 1. Extensions
@@ -6,94 +6,113 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 2. Tables
 
--- Users (Auth and Profile)
-CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email TEXT UNIQUE NOT NULL,
-    full_name TEXT,
-    hashed_password TEXT NOT NULL,
-    role TEXT DEFAULT 'user',
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
 -- Workspaces (Multi-tenancy)
-CREATE TABLE IF NOT EXISTS workspaces (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    owner_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Workspace Members
-CREATE TABLE IF NOT EXISTS workspace_members (
-    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    role TEXT DEFAULT 'member',
-    PRIMARY KEY (workspace_id, user_id)
-);
-
--- Enterprises
-CREATE TABLE IF NOT EXISTS enterprises (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS workspace (
+    id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     cif TEXT,
-    sector TEXT,
-    address TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Audits
-CREATE TABLE IF NOT EXISTS audits (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    enterprise_id UUID REFERENCES enterprises(id) ON DELETE CASCADE,
-    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    status TEXT DEFAULT 'draft', -- draft, completed
-    type TEXT, -- legal, payroll, 
-    period_start DATE,
-    period_end DATE,
-    wizard_data JSONB DEFAULT '{}',
-    kpis JSONB DEFAULT '{}',
+    razon_social TEXT,
+    nif TEXT,
+    direccion_fiscal TEXT,
+    codigo_postal TEXT,
+    ciudad TEXT,
+    subscription_status TEXT DEFAULT 'FREEMIUM',
+    settings JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Employees (Step 2 Data)
-CREATE TABLE IF NOT EXISTS employees (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    audit_id UUID REFERENCES audits(id) ON DELETE CASCADE,
+-- Users
+CREATE TABLE IF NOT EXISTS user_table ( -- 'user' is a reserved keyword in Postgres
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
     first_name TEXT,
     last_name TEXT,
-    email TEXT,
-    role TEXT,
-    salary_periodicity TEXT,
-    base_salary NUMERIC,
-    working_hours NUMERIC,
-    employment_type TEXT,
-    professional_group TEXT,
-    metadata JSONB DEFAULT '{}'
+    role TEXT DEFAULT 'ADMIN',
+    workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enterprises
+CREATE TABLE IF NOT EXISTS empresa (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE,
+    nombre TEXT NOT NULL,
+    cif TEXT NOT NULL,
+    sector TEXT,
+    num_empleados INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Audits
+CREATE TABLE IF NOT EXISTS auditoria (
+    id TEXT PRIMARY KEY,
+    empresa_id TEXT REFERENCES empresa(id) ON DELETE CASCADE,
+    estado TEXT DEFAULT 'Borrador',
+    tipo TEXT DEFAULT 'FULL',
+    progreso INTEGER DEFAULT 0,
+    current_step INTEGER DEFAULT 1,
+    wizard_data JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Findings (Hallazgos)
-CREATE TABLE IF NOT EXISTS findings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    audit_id UUID REFERENCES audits(id) ON DELETE CASCADE,
-    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    area TEXT,
-    severity TEXT,
-    description TEXT,
-    recommendation TEXT,
-    legal_basis JSONB DEFAULT '[]',
-    estimated_fine NUMERIC,
-    status TEXT DEFAULT 'open', -- open, resolved
-    source TEXT, -- manual, ai_vision, automated
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS hallazgo (
+    id TEXT PRIMARY KEY,
+    auditoria_id TEXT REFERENCES auditoria(id) ON DELETE CASCADE,
+    control_id TEXT,
+    resultado TEXT DEFAULT 'NO CUMPLE',
+    remediacion TEXT DEFAULT 'Abierto',
+    severidad TEXT DEFAULT 'Media',
+    descripcion TEXT,
+    recomendacion TEXT,
+    exposicion_min FLOAT DEFAULT 0.0,
+    exposicion_max FLOAT DEFAULT 0.0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 3. RLS (Row Level Security) - Basic setup
--- In a real Supabase environment, we would enable RLS and add policies:
--- ALTER TABLE audits ENABLE ROW LEVEL SECURITY;
--- CREATE POLICY "Users can only see audits from their workspaces" ON audits ...
+-- Documents
+CREATE TABLE IF NOT EXISTS documento (
+    id TEXT PRIMARY KEY,
+    empresa_id TEXT REFERENCES empresa(id) ON DELETE CASCADE,
+    hallazgo_id TEXT REFERENCES hallazgo(id) ON DELETE SET NULL,
+    nombre TEXT NOT NULL,
+    tipo TEXT,
+    url TEXT NOT NULL,
+    relacionado_tipo TEXT DEFAULT 'Ninguno',
+    relacionado_id TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Invoices (Facturas)
+CREATE TABLE IF NOT EXISTS factura (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE,
+    stripe_id TEXT,
+    monto FLOAT NOT NULL,
+    moneda TEXT DEFAULT 'EUR',
+    fecha TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    tipo TEXT DEFAULT 'ALTA',
+    estado TEXT DEFAULT 'PAGADA',
+    pdf_url TEXT
+);
+
+-- Master Knowledge Library
+CREATE TABLE IF NOT EXISTS knowledgeitem (
+    id TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    title TEXT NOT NULL,
+    code TEXT,
+    summary TEXT,
+    articles JSONB DEFAULT '{}',
+    url TEXT,
+    is_global BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);

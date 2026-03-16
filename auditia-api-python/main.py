@@ -93,12 +93,20 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 app = FastAPI(title="Auditia API (Python)")
 
 # Robust CORS
+# Robust CORS with Environment Support
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
 origins = [
     "http://localhost:5173",
     "http://localhost:5175",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5175",
+    "https://iaresyn-auditia.web.app", # Firebase Default
+    "https://iaresyn-auditia.firebaseapp.com", # Firebase Default 2
 ]
+
+# Add custom origins from env
+if ALLOWED_ORIGINS:
+    origins.extend([o.strip() for o in ALLOWED_ORIGINS if o.strip()])
 
 app.add_middleware(
     CORSMiddleware,
@@ -1116,8 +1124,10 @@ async def create_checkout(
         if not price_id:
             raise HTTPException(status_code=400, detail="Missing priceId")
             
-        success_url = "http://localhost:5175/billing/success?session_id={CHECKOUT_SESSION_ID}"
-        cancel_url = "http://localhost:5175/billing/cancel"
+        # Dynamic URLs for Production compatibility
+        BASE_WEB_URL = os.getenv("FRONTEND_URL", "http://localhost:5175")
+        success_url = f"{BASE_WEB_URL}/billing/success?session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{BASE_WEB_URL}/billing/cancel"
         
         session_stripe = StripeService.create_checkout_session(
             user.email, price_id, success_url, cancel_url

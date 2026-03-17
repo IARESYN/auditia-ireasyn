@@ -679,16 +679,110 @@ def change_password(
     session.commit()
     return {"status": "success", "message": "Contraseña actualizada"}
 
-# --- WORKSPACES ---
+# --- WORKSPACES & ADMIN ---
+@app.get("/api/admin/workspaces", response_model=List[Workspace])
 @app.get("/api/workspaces", response_model=List[Workspace])
 def get_workspaces(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    # SuperAdmin sees all, Users see only their own
+    # SuperAdmin ve todo, usuarios normales solo su propio workspace
     if user.role == "SUPERADMIN" or user.email == "info@iaresyn.com":
         return session.exec(select(Workspace)).all()
     return session.exec(select(Workspace).where(Workspace.id == user.workspace_id)).all()
+
+@app.post("/api/admin/provision")
+def admin_provision_workspace(
+    data: dict,
+    admin: User = Depends(get_superadmin),
+    session: Session = Depends(get_session)
+):
+    """Crea un nuevo cliente (Workspace + Admin User)"""
+    workspace_name = data.get("workspaceName")
+    email = data.get("email")
+    first_name = data.get("firstName")
+    temp_password = data.get("tempPassword") or "IARESYN-TEMP-2026"
+    
+    # 1. Crear el Workspace
+    ws = Workspace(
+        name=workspace_name,
+        subscription_status="ACTIVE",
+        plan_id="ALTA"
+    )
+    session.add(ws)
+    session.commit()
+    session.refresh(ws)
+    
+    # 2. Crear el Usuario Administrador
+    pwd = pwd_context.hash(temp_password)
+    user = User(
+        email=email,
+        password=pwd,
+        first_name=first_name,
+        role="ADMIN",
+        workspace_id=ws.id,
+        is_active=True
+    )
+    session.add(user)
+    session.commit()
+    
+    return {
+        "status": "success",
+        "workspace_id": ws.id,
+        "email": email,
+        "temporary_password": temp_password
+    }
+
+@app.put("/api/admin/workspaces/{workspace_id}/status")
+def admin_update_workspace_status(
+    workspace_id: str,
+    data: dict,
+    admin: User = Depends(get_superadmin),
+    session: Session = Depends(get_session)
+):
+    ws = session.get(Workspace, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    
+    ws.subscription_status = data.get("status", "Active")
+    ws.updated_at = datetime.utcnow()
+    session.add(ws)
+    session.commit()
+    return {"status": "success"}
+
+@app.post("/api/admin/workspaces/{workspace_id}/reset-password")
+def admin_reset_client_password(
+    workspace_id: str,
+    admin: User = Depends(get_superadmin),
+    session: Session = Depends(get_session)
+):
+    # Encontrar el usuario ADMIN de ese workspace
+    user = session.exec(select(User).where(User.workspace_id == workspace_id, User.role == "ADMIN")).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Admin user for this workspace not found")
+    
+    new_temp_pwd = f"RESET-{uuid.uuid4().hex[:6].upper()}"
+    user.password = pwd_context.hash(new_temp_pwd)
+    user.updated_at = datetime.utcnow()
+    session.add(user)
+    session.commit()
+    
+    return {"status": "success", "new_password": new_temp_pwd}
+
+@app.delete("/api/admin/workspaces/{workspace_id}")
+def admin_delete_workspace(
+    workspace_id: str,
+    admin: User = Depends(get_superadmin),
+    session: Session = Depends(get_session)
+):
+    ws = session.get(Workspace, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    
+    # Borrado en cascada manual (Simplificado para MVP)
+    session.delete(ws)
+    session.commit()
+    return {"status": "deleted"}
 
 # --- KNOWLEDGE (MASTER LIBRARY) ---
 @app.get("/api/knowledge/master", response_model=List[KnowledgeItem])

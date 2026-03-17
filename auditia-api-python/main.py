@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Query, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select, func
@@ -92,39 +93,34 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 app = FastAPI(title="Auditia API (Python)")
 
-# --- NUCLEAR CORS MIDDLEWARE V2 ---
-# Solución definitiva para Cloud Run: Interceptor total de peticiones y respuestas
-@app.middleware("http")
-async def nuclear_cors_middleware(request: Request, call_next):
-    # Log OPTIONS requests for debugging
-    if request.method == "OPTIONS":
-        print(f"DEBUG CORS: Preflight OPTIONS for {request.url.path}")
-        response = Response()
-        response.status_code = status.HTTP_204_NO_CONTENT
-    else:
-        try:
-            response = await call_next(request)
-        except Exception as e:
-            print(f"DEBUG CORS: App Crash intercepted: {str(e)}")
-            response = JSONResponse(
-                status_code=500,
-                content={"detail": "Critical server error", "error": str(e)}
-            )
+# --- UNIVERSAL CORS MIDDLEWARE (V3) ---
+class UniversalCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Handle Preflight OPTIONS
+        if request.method == "OPTIONS":
+            response = Response(status_code=204)
+        else:
+            try:
+                response = await call_next(request)
+            except Exception as e:
+                print(f"DEBUG CORS: App Exception: {str(e)}")
+                # Ensure even on error we return JSON with CORS
+                response = JSONResponse(
+                    status_code=500,
+                    content={"detail": "Internal Server Error", "error": str(e)}
+                )
 
-    origin = request.headers.get("origin")
-    # Forzar headers CORS en CUALQUIER respuesta (éxito, error u OPTIONS)
-    if origin:
+        # Force CORS headers on absolute EVERY response
+        origin = request.headers.get("origin") or "*"
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-Firebase-Id-Token"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Expose-Headers"] = "*"
-    elif request.method == "OPTIONS":
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-    
-    return response
+        
+        return response
+
+app.add_middleware(UniversalCORSMiddleware)
 
 # Global Exception Handler to ensure CORS on 500 errors
 @app.exception_handler(Exception)
@@ -133,11 +129,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal Server Error", "error": str(exc)},
-        headers={
-            "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-            "Access-Control-Allow-Credentials": "true",
-        }
+        content={"detail": "Internal Server Error", "error": str(exc)}
     )
 
 # Utils

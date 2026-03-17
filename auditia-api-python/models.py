@@ -52,6 +52,7 @@ class Empresa(SQLModel, table=True):
 
 class Auditoria(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    codigo: Optional[str] = Field(default=None, index=True) # AUD-0001, etc
     empresa_id: str = Field(foreign_key="empresa.id")
     estado: str = Field(default="Borrador")
     tipo: str = Field(default="FULL")

@@ -92,28 +92,30 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 app = FastAPI(title="Auditia API (Python)")
 
-# Robust CORS
 # Robust CORS with Environment Support
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
+env_origins = os.getenv("ALLOWED_ORIGINS", "")
 origins = [
     "http://localhost:5173",
     "http://localhost:5175",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5175",
-    "https://iaresyn-auditia.web.app", # Firebase Default
-    "https://iaresyn-auditia.firebaseapp.com", # Firebase Default 2
+    "https://iaresyn-auditia.web.app",
+    "https://iaresyn-auditia.firebaseapp.com",
 ]
 
-# Add custom origins from env
-if ALLOWED_ORIGINS:
-    origins.extend([o.strip() for o in ALLOWED_ORIGINS if o.strip()])
+if env_origins:
+    for o in env_origins.split(","):
+        clean_o = o.strip()
+        if clean_o and clean_o not in origins:
+            origins.append(clean_o)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    expose_headers=["*"],
 )
 
 # Global Exception Handler to ensure CORS on 500 errors
@@ -233,6 +235,23 @@ def on_startup():
             session.add(existing)
             session.commit()
             print(f"User {admin_email} synced and promoted via startup")
+            
+        # --- MIGRATION: Sequential Audit Codes ---
+        audits_without_code = session.exec(select(Auditoria).where(Auditoria.codigo == None)).all()
+        if audits_without_code:
+            print(f"Found {len(audits_without_code)} audits without code. Migrating...")
+            # For simplicity, we process them by workspace
+            all_workspaces = session.exec(select(Workspace)).all()
+            for ws in all_workspaces:
+                ws_audits = session.exec(
+                    select(Auditoria).join(Empresa).where(Empresa.workspace_id == ws.id).order_by(Auditoria.created_at)
+                ).all()
+                for i, audit in enumerate(ws_audits):
+                    if not audit.codigo:
+                        audit.codigo = f"AUD-{(i+1):04d}"
+                        session.add(audit)
+            session.commit()
+            print("Audit code migration completed.")
 
 @app.get("/api/health")
 def health():
@@ -290,7 +309,7 @@ def admin_provision_client(
         
         # Enviar email de bienvenida al nuevo cliente (ADMIN del workspace)
         try:
-            EmailService.send_welcome_email(email, first_name)
+            EmailService.send_welcome_email(email, first_name, temp_password)
             print(f"DEBUG EMAIL: Welcome email sent (Provision) to {email}")
         except Exception as email_err:
             print(f"DEBUG EMAIL ERROR (Provision): {str(email_err)}")
@@ -725,6 +744,12 @@ def create_auditoria(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
+    # --- NUMERACIÓN CORRELATIVA ---
+    # Contar auditorías existentes del Workspace del usuario
+    statement = select(func.count(Auditoria.id)).join(Empresa).where(Empresa.workspace_id == user.workspace_id)
+    count = session.exec(statement).one_or_none() or 0
+    auditoria.codigo = f"AUD-{(count + 1):04d}"
+
     # --- FREEMIUM LOCK ---
     workspace = session.get(Workspace, user.workspace_id)
     if workspace and workspace.subscription_status == "FREEMIUM":

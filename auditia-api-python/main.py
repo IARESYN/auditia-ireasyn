@@ -93,36 +93,44 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 app = FastAPI(title="Auditia API (Python)")
 
-# --- UNIVERSAL CORS MIDDLEWARE (V3) ---
-class UniversalCORSMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Handle Preflight OPTIONS
-        if request.method == "OPTIONS":
-            response = Response(status_code=204)
-        else:
-            try:
-                response = await call_next(request)
-            except Exception as e:
-                print(f"DEBUG CORS: App Exception: {str(e)}")
-                # Ensure even on error we return JSON with CORS
-                response = JSONResponse(
-                    status_code=500,
-                    content={"detail": "Internal Server Error", "error": str(e)}
-                )
+# --- UNIVERSAL CORS MIDDLEWARE (V4 - NUCLEAR) ---
+# Solución de bajo nivel para garantizar headers en Cloud Run
+@app.middleware("http")
+async def universal_cors_middleware(request: Request, call_next):
+    # Log Origin mirroring logic
+    origin = request.headers.get("origin")
+    
+    # 1. Handle Preflight (OPTIONS)
+    if request.method == "OPTIONS":
+        response = Response(status_code=204)
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-Firebase-Id-Token"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
 
-        # Force CORS headers on absolute EVERY response
-        origin = request.headers.get("origin") or "*"
+    # 2. Process Actual Request
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        print(f"DEBUG CORS: Server Error intercepted: {str(e)}")
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": "Internal Server Error", "error": str(e)}
+        )
+
+    # 3. Inject CORS Headers in every response (success or error)
+    if origin:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
         response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-Firebase-Id-Token"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Expose-Headers"] = "*"
-        
-        return response
+    
+    return response
 
-app.add_middleware(UniversalCORSMiddleware)
-
-# Global Exception Handler to ensure CORS on 500 errors
+# Global Exception Handler (CORS already handled by middleware above)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     print(f"CRITICAL ERROR: {str(exc)}")
@@ -166,8 +174,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
                 # Check user in local SQLite
                 user = session.exec(select(User).where(User.email == email)).first()
                 if user:
-                    # Sync role if it's the superadmin email
-                    if email == "info@iaresyn.com" and user.role != "SUPERADMIN":
+                    # Sync role if it's a superadmin email
+                    is_master_email = email in ["info@iaresyn.com", "superadmin@iaresyn.com"]
+                    if is_master_email and user.role != "SUPERADMIN":
                         user.role = "SUPERADMIN"
                         session.add(user)
                         session.commit()

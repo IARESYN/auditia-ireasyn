@@ -95,33 +95,17 @@ app = FastAPI(title="Auditia API (Python)")
 
 from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
-# --- UNIVERSAL CORS CONFIGURATION (V6 - STANDARD + PROXY) ---
-# Usamos la librería oficial de FastAPI para máxima compatibilidad
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://auditia-ireasyn.web.app",
-    "https://iaresyn-auditia.web.app"
-]
+# --- UNIVERSAL CORS CONFIGURATION (V7 - UNIFIED NUCLEAR SHIELD) ---
+# Eliminamos la librería estándar para evitar colisiones de cabeceras.
+# Inyectamos TODO manualmente en el flujo de la petición.
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
-
-# Crucial para entornos Proxy (Cloud Run)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
-# Interceptor Manual de Seguridad (Backup)
 @app.middleware("http")
-async def cors_backup_middleware(request: Request, call_next):
-    # Detectar el origin real del navegador
+async def universal_cors_v7_middleware(request: Request, call_next):
     origin = request.headers.get("origin")
     
+    # Manejo inmediato de preflights (OPTIONS)
     if request.method == "OPTIONS":
         response = Response(status_code=204)
         if origin and any(o in origin for o in ["localhost", "web.app", "iaresyn"]):
@@ -129,21 +113,28 @@ async def cors_backup_middleware(request: Request, call_next):
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
             response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-Firebase-Id-Token"
             response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Max-Age"] = "86400"
         return response
 
     try:
         response = await call_next(request)
     except Exception as e:
-        print(f"CORS V6 ERROR: {str(e)}")
+        print(f"CORS V7 INTERCEPTED ERROR: {str(e)}")
         response = JSONResponse(
             status_code=500,
             content={"detail": "Internal Server Error", "error": str(e)}
         )
 
-    # Inyección de refuerzo si el origen es de confianza
+    # Inyección de headers en CUALQUIER otra respuesta (éxito o error)
     if origin and any(o in origin for o in ["localhost", "web.app", "iaresyn"]):
         response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-Firebase-Id-Token"
         response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+    elif not origin:
+        # Fallback para herramientas de desarrollo
+        response.headers["Access-Control-Allow-Origin"] = "*"
     
     return response
 
@@ -152,19 +143,20 @@ async def cors_backup_middleware(request: Request, call_next):
 async def debug_cors(request: Request):
     return {
         "client_host": request.client.host,
-        "headers": dict(request.headers),
+        "origin_received": request.headers.get("origin"),
+        "all_headers": dict(request.headers),
         "method": request.method,
         "url": str(request.url)
     }
 
-# Global Exception Handler (CORS already handled by middleware/FastAPI)
+# Global Exception Handler (CORS already handled by middleware)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     print(f"CRITICAL ERROR: {str(exc)}")
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal Server Error", "error": str(exc)}
+        content={"detail": "Error Interno del Sistema", "type": type(exc).__name__, "msg": str(exc)}
     )
 
 # Utils

@@ -111,10 +111,10 @@ if env_origins:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"] if not origins else origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["*"],
 )
 
@@ -1009,6 +1009,49 @@ async def process_knowledge_file(
         "success": True,
         "data": structured_data
     }
+
+@app.get("/api/knowledge/master", response_model=List[KnowledgeItem])
+def get_master_knowledge(session: Session = Depends(get_session)):
+    """Devuelve toda la base de conocimiento global (Leyes, Convenios, etc.)"""
+    return session.exec(select(KnowledgeItem).where(KnowledgeItem.is_global == True)).all()
+
+@app.post("/api/admin/knowledge/sync")
+async def sync_master_knowledge(
+    bundle: Dict[str, Any], 
+    admin: User = Depends(get_superadmin),
+    session: Session = Depends(get_session)
+):
+    """Permite al SuperAdmin subir un bloque masivo de conocimiento (Leyes, etc.)"""
+    try:
+        # bundle espera: { category: [items] }
+        total = 0
+        for category, items in bundle.items():
+            for item in items:
+                # Evitar duplicados por título/código si ya existe
+                existing = session.exec(
+                    select(KnowledgeItem).where(
+                        KnowledgeItem.title == item.get("title")
+                    )
+                ).first()
+                
+                if not existing:
+                    new_item = KnowledgeItem(
+                        category=category,
+                        title=item.get("title"),
+                        code=item.get("code"),
+                        summary=item.get("summary"),
+                        articles=item.get("articles", {}),
+                        url=item.get("url"),
+                        is_global=True
+                    )
+                    session.add(new_item)
+                    total += 1
+        
+        session.commit()
+        return {"success": True, "message": f"Sincronizados {total} elementos de conocimiento."}
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/knowledge/process-url")
 async def process_knowledge_url(

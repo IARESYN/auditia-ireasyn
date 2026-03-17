@@ -93,42 +93,59 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 app = FastAPI(title="Auditia API (Python)")
 
-# --- UNIVERSAL CORS MIDDLEWARE (V4 - NUCLEAR) ---
-# Solución de bajo nivel para garantizar headers en Cloud Run
+# --- UNIVERSAL CORS MIDDLEWARE (V5 - NUCLEAR CATCH-ALL) ---
+# Solución definitiva inyectada en el flujo de la petición
 @app.middleware("http")
 async def universal_cors_middleware(request: Request, call_next):
-    # Log Origin mirroring logic
     origin = request.headers.get("origin")
     
-    # 1. Handle Preflight (OPTIONS)
+    # Manejo de OPTIONS previo al procesamiento (Backup del middleware)
     if request.method == "OPTIONS":
         response = Response(status_code=204)
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-Firebase-Id-Token"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Origin"] = origin or "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-Firebase-Id-Token"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Max-Age"] = "86400"
         return response
 
-    # 2. Process Actual Request
     try:
         response = await call_next(request)
     except Exception as e:
-        print(f"DEBUG CORS: Server Error intercepted: {str(e)}")
+        print(f"CORS V5 ERROR: {str(e)}")
         response = JSONResponse(
             status_code=500,
             content={"detail": "Internal Server Error", "error": str(e)}
         )
 
-    # 3. Inject CORS Headers in every response (success or error)
+    # Inyección de headers en CUALQUIER respuesta (éxito o error)
+    # Importante: No usar "*" si hay credenciales, usar mirroring del origin
     if origin:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
         response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-Firebase-Id-Token"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Expose-Headers"] = "*"
+    else:
+        # Fallback para peticiones sin Origin (herramientas de terminal, etc.)
+        response.headers["Access-Control-Allow-Origin"] = "*"
     
     return response
+
+# Catch-all para OPTIONS (Tercera capa de seguridad CORS)
+@app.options("/{full_path:path}")
+async def catch_all_options(request: Request, full_path: str):
+    origin = request.headers.get("origin") or "*"
+    return Response(
+        status_code=204,
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin, X-Requested-With, X-Firebase-Id-Token",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "86400",
+        }
+    )
 
 # Global Exception Handler (CORS already handled by middleware above)
 @app.exception_handler(Exception)

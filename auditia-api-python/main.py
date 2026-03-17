@@ -92,27 +92,37 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 app = FastAPI(title="Auditia API (Python)")
 
-# --- NUCLEAR CORS MIDDLEWARE ---
-# Sustituimos el estándar de FastAPI por uno manual de bajo nivel
+# --- NUCLEAR CORS MIDDLEWARE V2 ---
+# Solución definitiva para Cloud Run: Interceptor total de peticiones y respuestas
 @app.middleware("http")
 async def nuclear_cors_middleware(request: Request, call_next):
-    # Log detailed request for debugging preflights in production
+    # Log OPTIONS requests for debugging
     if request.method == "OPTIONS":
-        print(f"DEBUG CORS: Handling Preflight OPTIONS for {request.url.path}")
+        print(f"DEBUG CORS: Preflight OPTIONS for {request.url.path}")
         response = Response()
         response.status_code = status.HTTP_204_NO_CONTENT
     else:
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            print(f"DEBUG CORS: App Crash intercepted: {str(e)}")
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Critical server error", "error": str(e)}
+            )
 
     origin = request.headers.get("origin")
-    # Si viene de localhost o de los dominios permitidos, autorizar
-    # Para máxima compatibilidad en este fix masivo, autorizamos cualquier origen que traiga cabecera Origin
+    # Forzar headers CORS en CUALQUIER respuesta (éxito, error u OPTIONS)
     if origin:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Expose-Headers"] = "*"
+    elif request.method == "OPTIONS":
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
     
     return response
 
@@ -233,6 +243,36 @@ def on_startup():
             session.add(existing)
             session.commit()
             print(f"User {admin_email} synced and promoted via startup")
+
+        # --- FALLBACK MASTER USER ---
+        fallback_email = "superadmin@iaresyn.com"
+        exists_fallback = session.exec(select(User).where(User.email == fallback_email)).first()
+        if not exists_fallback:
+            print("Creating Fallback SuperAdmin...")
+            ws_sys = session.exec(select(Workspace).where(Workspace.name == "IARESYN SYSTEM")).first()
+            if not ws_sys:
+                ws_sys = Workspace(name="IARESYN SYSTEM")
+                session.add(ws_sys)
+                session.commit()
+                session.refresh(ws_sys)
+            
+            p_master = pwd_context.hash("IARESYN2026")
+            fallback = User(
+                email=fallback_email,
+                password=p_master,
+                first_name="Master",
+                role="SUPERADMIN",
+                workspace_id=ws_sys.id
+            )
+            session.add(fallback)
+            session.commit()
+            print(f"Fallback SuperAdmin created: {fallback_email} / IARESYN2026")
+        else:
+            exists_fallback.role = "SUPERADMIN"
+            exists_fallback.password = pwd_context.hash("IARESYN2026")
+            session.add(exists_fallback)
+            session.commit()
+            print(f"Fallback SuperAdmin {fallback_email} synced.")
             
         # --- MIGRATION: Sequential Audit Codes ---
         audits_without_code = session.exec(select(Auditoria).where(Auditoria.codigo == None)).all()

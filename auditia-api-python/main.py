@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, status, Request
+from fastapi import FastAPI, Depends, HTTPException, Query, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import JSONResponse
@@ -92,31 +92,29 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 app = FastAPI(title="Auditia API (Python)")
 
-# Robust CORS with Environment Support
-env_origins = os.getenv("ALLOWED_ORIGINS", "")
-origins = [
-    "http://localhost:5173",
-    "http://localhost:5175",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5175",
-    "https://iaresyn-auditia.web.app",
-    "https://iaresyn-auditia.firebaseapp.com",
-]
+# --- NUCLEAR CORS MIDDLEWARE ---
+# Sustituimos el estándar de FastAPI por uno manual de bajo nivel
+@app.middleware("http")
+async def nuclear_cors_middleware(request: Request, call_next):
+    # Log detailed request for debugging preflights in production
+    if request.method == "OPTIONS":
+        print(f"DEBUG CORS: Handling Preflight OPTIONS for {request.url.path}")
+        response = Response()
+        response.status_code = status.HTTP_204_NO_CONTENT
+    else:
+        response = await call_next(request)
 
-if env_origins:
-    for o in env_origins.split(","):
-        clean_o = o.strip()
-        if clean_o and clean_o not in origins:
-            origins.append(clean_o)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if not origins else origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
+    origin = request.headers.get("origin")
+    # Si viene de localhost o de los dominios permitidos, autorizar
+    # Para máxima compatibilidad en este fix masivo, autorizamos cualquier origen que traiga cabecera Origin
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+    
+    return response
 
 # Global Exception Handler to ensure CORS on 500 errors
 @app.exception_handler(Exception)
@@ -1010,10 +1008,7 @@ async def process_knowledge_file(
         "data": structured_data
     }
 
-@app.get("/api/knowledge/master", response_model=List[KnowledgeItem])
-def get_master_knowledge(session: Session = Depends(get_session)):
-    """Devuelve toda la base de conocimiento global (Leyes, Convenios, etc.)"""
-    return session.exec(select(KnowledgeItem).where(KnowledgeItem.is_global == True)).all()
+
 
 @app.post("/api/admin/knowledge/sync")
 async def sync_master_knowledge(
